@@ -17,6 +17,7 @@ import { WorkspaceTable } from "@opencode-ai/console-core/schema/workspace.sql.j
 import { UserTable } from "@opencode-ai/console-core/schema/user.sql.js"
 import { AuthTable } from "@opencode-ai/console-core/schema/auth.sql.js"
 import { Identifier } from "@opencode-ai/console-core/identifier.js"
+import { isAllowedAuthorizationRedirect } from "./auth-redirect.js"
 
 type Env = {
   AuthStorage: KVNamespace
@@ -26,6 +27,7 @@ export const subjects = createSubjects({
   account: z.object({
     accountID: z.string(),
     email: z.string(),
+    newAccount: z.boolean().optional(),
   }),
   user: z.object({
     userID: z.string(),
@@ -35,11 +37,22 @@ export const subjects = createSubjects({
 
 const MY_THEME: Theme = {
   ...THEME_OPENAUTH,
-  logo: "https://opencode.ai/favicon.svg",
+  logo: "https://opencode.ai/favicon-v3.svg",
 }
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    const requestURL = new URL(request.url)
+    if (requestURL.pathname === "/authorize") {
+      const redirectURI = requestURL.searchParams.get("redirect_uri")
+      if (
+        redirectURI !== null &&
+        !isAllowedAuthorizationRedirect(requestURL.searchParams.get("client_id") ?? "", redirectURI)
+      ) {
+        return new Response("Unauthorized client", { status: 400 })
+      }
+    }
+
     const result = await issuer({
       theme: MY_THEME,
       providers: {
@@ -101,6 +114,7 @@ export default {
         namespace: env.AuthStorage,
       }),
       subjects,
+      allow: ({ clientID, redirectURI }) => Promise.resolve(isAllowedAuthorizationRedirect(clientID, redirectURI)),
       async success(ctx, response) {
         console.log(response)
 
@@ -123,7 +137,11 @@ export default {
             },
           }).then((x) => x.json())) as any
           subject = user.id.toString()
-          email = emails.find((x: any) => x.primary && x.verified)?.email
+
+          const primaryEmail = emails.find((x: any) => x.primary)
+          if (!primaryEmail) throw new Error("No primary email found for GitHub user")
+          if (!primaryEmail.verified) throw new Error("Primary email for GitHub user not verified")
+          email = primaryEmail.email
         } else if (response.provider === "google") {
           if (!response.id.email_verified) throw new Error("Google email not verified")
           subject = response.id.sub as string
@@ -138,6 +156,7 @@ export default {
         }
 
         // Get account
+        let newAccount = false
         const accountID = await (async () => {
           const matches = await Database.use(async (tx) =>
             tx
@@ -162,6 +181,7 @@ export default {
           if (!accountID) {
             console.log("creating account for", email)
             accountID = await Account.create({})
+            newAccount = true
           }
 
           await Database.use(async (tx) =>
@@ -194,7 +214,7 @@ export default {
         // Get workspace
         await Actor.provide("account", { accountID, email }, async () => {
           await User.joinInvitedWorkspaces()
-          const workspaces = await Database.transaction(async (tx) =>
+          const workspaces = await Database.use((tx) =>
             tx
               .select({ id: WorkspaceTable.id })
               .from(WorkspaceTable)
@@ -211,7 +231,7 @@ export default {
             await Workspace.create({ name: "Default" })
           }
         })
-        return ctx.subject("account", accountID, { accountID, email })
+        return ctx.subject("account", accountID, { accountID, email, newAccount })
       },
     }).fetch(request, env, ctx)
     return result

@@ -6,11 +6,11 @@ import * as vscode from "vscode"
 const TERMINAL_NAME = "opencode"
 
 export function activate(context: vscode.ExtensionContext) {
-  let openNewTerminalDisposable = vscode.commands.registerCommand("opencode.openNewTerminal", async () => {
+  const openNewTerminalDisposable = vscode.commands.registerCommand("opencode.openNewTerminal", async () => {
     await openTerminal()
   })
 
-  let openTerminalDisposable = vscode.commands.registerCommand("opencode.openTerminal", async () => {
+  const openTerminalDisposable = vscode.commands.registerCommand("opencode.openTerminal", async () => {
     // An opencode terminal already exists => focus it
     const existingTerminal = vscode.window.terminals.find((t) => t.name === TERMINAL_NAME)
     if (existingTerminal) {
@@ -23,20 +23,24 @@ export function activate(context: vscode.ExtensionContext) {
 
   let addFilepathDisposable = vscode.commands.registerCommand("opencode.addFilepathToTerminal", async () => {
     const fileRef = getActiveFile()
-    if (!fileRef) return
+    if (!fileRef) {
+      return
+    }
 
     const terminal = vscode.window.activeTerminal
-    if (!terminal) return
+    if (!terminal) {
+      return
+    }
 
     if (terminal.name === TERMINAL_NAME) {
       // @ts-ignore
       const port = terminal.creationOptions.env?.["_EXTENSION_OPENCODE_PORT"]
-      port ? await appendPrompt(parseInt(port), fileRef) : terminal.sendText(fileRef)
+      port ? await appendPrompt(parseInt(port), fileRef) : terminal.sendText(fileRef, false)
       terminal.show()
     }
   })
 
-  context.subscriptions.push(openTerminalDisposable, addFilepathDisposable)
+  context.subscriptions.push(openNewTerminalDisposable, openTerminalDisposable, addFilepathDisposable)
 
   async function openTerminal() {
     // Create a new terminal in split screen
@@ -61,7 +65,9 @@ export function activate(context: vscode.ExtensionContext) {
     terminal.sendText(`opencode --port ${port}`)
 
     const fileRef = getActiveFile()
-    if (!fileRef) return
+    if (!fileRef) {
+      return
+    }
 
     // Wait for the terminal to be ready
     let tries = 10
@@ -72,7 +78,7 @@ export function activate(context: vscode.ExtensionContext) {
         await fetch(`http://localhost:${port}/app`)
         connected = true
         break
-      } catch (e) {}
+      } catch {}
 
       tries--
     } while (tries > 0)
@@ -96,11 +102,15 @@ export function activate(context: vscode.ExtensionContext) {
 
   function getActiveFile() {
     const activeEditor = vscode.window.activeTextEditor
-    if (!activeEditor) return
+    if (!activeEditor) {
+      return
+    }
 
     const document = activeEditor.document
     const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri)
-    if (!workspaceFolder) return
+    if (!workspaceFolder) {
+      return
+    }
 
     // Get the relative path from workspace root
     const relativePath = vscode.workspace.asRelativePath(document.uri)

@@ -2,10 +2,29 @@
 
 import type { Options as ClientOptions, TDataShape, Client } from "./client/index.js"
 import type {
+  GlobalEventData,
+  GlobalEventResponses,
   ProjectListData,
   ProjectListResponses,
   ProjectCurrentData,
   ProjectCurrentResponses,
+  PtyListData,
+  PtyListResponses,
+  PtyCreateData,
+  PtyCreateResponses,
+  PtyCreateErrors,
+  PtyRemoveData,
+  PtyRemoveResponses,
+  PtyRemoveErrors,
+  PtyGetData,
+  PtyGetResponses,
+  PtyGetErrors,
+  PtyUpdateData,
+  PtyUpdateResponses,
+  PtyUpdateErrors,
+  PtyConnectData,
+  PtyConnectResponses,
+  PtyConnectErrors,
   ConfigGetData,
   ConfigGetResponses,
   ConfigUpdateData,
@@ -17,13 +36,20 @@ import type {
   ToolListData,
   ToolListResponses,
   ToolListErrors,
+  InstanceDisposeData,
+  InstanceDisposeResponses,
   PathGetData,
   PathGetResponses,
+  VcsGetData,
+  VcsGetResponses,
   SessionListData,
   SessionListResponses,
   SessionCreateData,
   SessionCreateResponses,
   SessionCreateErrors,
+  SessionStatusData,
+  SessionStatusResponses,
+  SessionStatusErrors,
   SessionDeleteData,
   SessionDeleteResponses,
   SessionDeleteErrors,
@@ -55,6 +81,7 @@ import type {
   SessionShareErrors,
   SessionDiffData,
   SessionDiffResponses,
+  SessionDiffErrors,
   SessionSummarizeData,
   SessionSummarizeResponses,
   SessionSummarizeErrors,
@@ -67,6 +94,9 @@ import type {
   SessionMessageData,
   SessionMessageResponses,
   SessionMessageErrors,
+  SessionPromptAsyncData,
+  SessionPromptAsyncResponses,
+  SessionPromptAsyncErrors,
   SessionCommandData,
   SessionCommandResponses,
   SessionCommandErrors,
@@ -86,6 +116,16 @@ import type {
   CommandListResponses,
   ConfigProvidersData,
   ConfigProvidersResponses,
+  ProviderListData,
+  ProviderListResponses,
+  ProviderAuthData,
+  ProviderAuthResponses,
+  ProviderOauthAuthorizeData,
+  ProviderOauthAuthorizeResponses,
+  ProviderOauthAuthorizeErrors,
+  ProviderOauthCallbackData,
+  ProviderOauthCallbackResponses,
+  ProviderOauthCallbackErrors,
   FindTextData,
   FindTextResponses,
   FindFilesData,
@@ -105,6 +145,29 @@ import type {
   AppAgentsResponses,
   McpStatusData,
   McpStatusResponses,
+  McpAddData,
+  McpAddResponses,
+  McpAddErrors,
+  McpAuthRemoveData,
+  McpAuthRemoveResponses,
+  McpAuthRemoveErrors,
+  McpAuthStartData,
+  McpAuthStartResponses,
+  McpAuthStartErrors,
+  McpAuthCallbackData,
+  McpAuthCallbackResponses,
+  McpAuthCallbackErrors,
+  McpAuthAuthenticateData,
+  McpAuthAuthenticateResponses,
+  McpAuthAuthenticateErrors,
+  McpConnectData,
+  McpConnectResponses,
+  McpDisconnectData,
+  McpDisconnectResponses,
+  LspStatusData,
+  LspStatusResponses,
+  FormatterStatusData,
+  FormatterStatusResponses,
   TuiAppendPromptData,
   TuiAppendPromptResponses,
   TuiAppendPromptErrors,
@@ -125,6 +188,13 @@ import type {
   TuiExecuteCommandErrors,
   TuiShowToastData,
   TuiShowToastResponses,
+  TuiPublishData,
+  TuiPublishResponses,
+  TuiPublishErrors,
+  TuiControlNextData,
+  TuiControlNextResponses,
+  TuiControlResponseData,
+  TuiControlResponseResponses,
   AuthSetData,
   AuthSetResponses,
   AuthSetErrors,
@@ -160,6 +230,18 @@ class _HeyApiClient {
   }
 }
 
+class Global extends _HeyApiClient {
+  /**
+   * Get events
+   */
+  public event<ThrowOnError extends boolean = false>(options?: Options<GlobalEventData, ThrowOnError>) {
+    return (options?.client ?? this._client).get.sse<GlobalEventResponses, unknown, ThrowOnError>({
+      url: "/global/event",
+      ...options,
+    })
+  }
+}
+
 class Project extends _HeyApiClient {
   /**
    * List all projects
@@ -177,6 +259,76 @@ class Project extends _HeyApiClient {
   public current<ThrowOnError extends boolean = false>(options?: Options<ProjectCurrentData, ThrowOnError>) {
     return (options?.client ?? this._client).get<ProjectCurrentResponses, unknown, ThrowOnError>({
       url: "/project/current",
+      ...options,
+    })
+  }
+}
+
+class Pty extends _HeyApiClient {
+  /**
+   * List all PTY sessions
+   */
+  public list<ThrowOnError extends boolean = false>(options?: Options<PtyListData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<PtyListResponses, unknown, ThrowOnError>({
+      url: "/pty",
+      ...options,
+    })
+  }
+
+  /**
+   * Create a new PTY session
+   */
+  public create<ThrowOnError extends boolean = false>(options?: Options<PtyCreateData, ThrowOnError>) {
+    return (options?.client ?? this._client).post<PtyCreateResponses, PtyCreateErrors, ThrowOnError>({
+      url: "/pty",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    })
+  }
+
+  /**
+   * Remove a PTY session
+   */
+  public remove<ThrowOnError extends boolean = false>(options: Options<PtyRemoveData, ThrowOnError>) {
+    return (options.client ?? this._client).delete<PtyRemoveResponses, PtyRemoveErrors, ThrowOnError>({
+      url: "/pty/{id}",
+      ...options,
+    })
+  }
+
+  /**
+   * Get PTY session info
+   */
+  public get<ThrowOnError extends boolean = false>(options: Options<PtyGetData, ThrowOnError>) {
+    return (options.client ?? this._client).get<PtyGetResponses, PtyGetErrors, ThrowOnError>({
+      url: "/pty/{id}",
+      ...options,
+    })
+  }
+
+  /**
+   * Update PTY session
+   */
+  public update<ThrowOnError extends boolean = false>(options: Options<PtyUpdateData, ThrowOnError>) {
+    return (options.client ?? this._client).put<PtyUpdateResponses, PtyUpdateErrors, ThrowOnError>({
+      url: "/pty/{id}",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+  }
+
+  /**
+   * Connect to a PTY session
+   */
+  public connect<ThrowOnError extends boolean = false>(options: Options<PtyConnectData, ThrowOnError>) {
+    return (options.client ?? this._client).get<PtyConnectResponses, PtyConnectErrors, ThrowOnError>({
+      url: "/pty/{id}/connect",
       ...options,
     })
   }
@@ -240,6 +392,18 @@ class Tool extends _HeyApiClient {
   }
 }
 
+class Instance extends _HeyApiClient {
+  /**
+   * Dispose the current instance
+   */
+  public dispose<ThrowOnError extends boolean = false>(options?: Options<InstanceDisposeData, ThrowOnError>) {
+    return (options?.client ?? this._client).post<InstanceDisposeResponses, unknown, ThrowOnError>({
+      url: "/instance/dispose",
+      ...options,
+    })
+  }
+}
+
 class Path extends _HeyApiClient {
   /**
    * Get the current path
@@ -247,6 +411,18 @@ class Path extends _HeyApiClient {
   public get<ThrowOnError extends boolean = false>(options?: Options<PathGetData, ThrowOnError>) {
     return (options?.client ?? this._client).get<PathGetResponses, unknown, ThrowOnError>({
       url: "/path",
+      ...options,
+    })
+  }
+}
+
+class Vcs extends _HeyApiClient {
+  /**
+   * Get VCS info for the current instance
+   */
+  public get<ThrowOnError extends boolean = false>(options?: Options<VcsGetData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<VcsGetResponses, unknown, ThrowOnError>({
+      url: "/vcs",
       ...options,
     })
   }
@@ -274,6 +450,16 @@ class Session extends _HeyApiClient {
         "Content-Type": "application/json",
         ...options?.headers,
       },
+    })
+  }
+
+  /**
+   * Get session status
+   */
+  public status<ThrowOnError extends boolean = false>(options?: Options<SessionStatusData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<SessionStatusResponses, SessionStatusErrors, ThrowOnError>({
+      url: "/session/status",
+      ...options,
     })
   }
 
@@ -390,10 +576,10 @@ class Session extends _HeyApiClient {
   }
 
   /**
-   * Get the diff that resulted from this user message
+   * Get the diff for this session
    */
   public diff<ThrowOnError extends boolean = false>(options: Options<SessionDiffData, ThrowOnError>) {
-    return (options.client ?? this._client).get<SessionDiffResponses, unknown, ThrowOnError>({
+    return (options.client ?? this._client).get<SessionDiffResponses, SessionDiffErrors, ThrowOnError>({
       url: "/session/{id}/diff",
       ...options,
     })
@@ -444,6 +630,20 @@ class Session extends _HeyApiClient {
     return (options.client ?? this._client).get<SessionMessageResponses, SessionMessageErrors, ThrowOnError>({
       url: "/session/{id}/message/{messageID}",
       ...options,
+    })
+  }
+
+  /**
+   * Create and send a new message to a session, start if needed and return immediately
+   */
+  public promptAsync<ThrowOnError extends boolean = false>(options: Options<SessionPromptAsyncData, ThrowOnError>) {
+    return (options.client ?? this._client).post<SessionPromptAsyncResponses, SessionPromptAsyncErrors, ThrowOnError>({
+      url: "/session/{id}/prompt_async",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
     })
   }
 
@@ -510,6 +710,67 @@ class Command extends _HeyApiClient {
       ...options,
     })
   }
+}
+
+class Oauth extends _HeyApiClient {
+  /**
+   * Authorize a provider using OAuth
+   */
+  public authorize<ThrowOnError extends boolean = false>(options: Options<ProviderOauthAuthorizeData, ThrowOnError>) {
+    return (options.client ?? this._client).post<
+      ProviderOauthAuthorizeResponses,
+      ProviderOauthAuthorizeErrors,
+      ThrowOnError
+    >({
+      url: "/provider/{id}/oauth/authorize",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+  }
+
+  /**
+   * Handle OAuth callback for a provider
+   */
+  public callback<ThrowOnError extends boolean = false>(options: Options<ProviderOauthCallbackData, ThrowOnError>) {
+    return (options.client ?? this._client).post<
+      ProviderOauthCallbackResponses,
+      ProviderOauthCallbackErrors,
+      ThrowOnError
+    >({
+      url: "/provider/{id}/oauth/callback",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+  }
+}
+
+class Provider extends _HeyApiClient {
+  /**
+   * List all providers
+   */
+  public list<ThrowOnError extends boolean = false>(options?: Options<ProviderListData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<ProviderListResponses, unknown, ThrowOnError>({
+      url: "/provider",
+      ...options,
+    })
+  }
+
+  /**
+   * Get provider authentication methods
+   */
+  public auth<ThrowOnError extends boolean = false>(options?: Options<ProviderAuthData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<ProviderAuthResponses, unknown, ThrowOnError>({
+      url: "/provider/auth",
+      ...options,
+    })
+  }
+  oauth = new Oauth({ client: this._client })
 }
 
 class Find extends _HeyApiClient {
@@ -602,6 +863,68 @@ class App extends _HeyApiClient {
   }
 }
 
+class Auth extends _HeyApiClient {
+  /**
+   * Remove OAuth credentials for an MCP server
+   */
+  public remove<ThrowOnError extends boolean = false>(options: Options<McpAuthRemoveData, ThrowOnError>) {
+    return (options.client ?? this._client).delete<McpAuthRemoveResponses, McpAuthRemoveErrors, ThrowOnError>({
+      url: "/mcp/{name}/auth",
+      ...options,
+    })
+  }
+
+  /**
+   * Start OAuth authentication flow for an MCP server
+   */
+  public start<ThrowOnError extends boolean = false>(options: Options<McpAuthStartData, ThrowOnError>) {
+    return (options.client ?? this._client).post<McpAuthStartResponses, McpAuthStartErrors, ThrowOnError>({
+      url: "/mcp/{name}/auth",
+      ...options,
+    })
+  }
+
+  /**
+   * Complete OAuth authentication with authorization code
+   */
+  public callback<ThrowOnError extends boolean = false>(options: Options<McpAuthCallbackData, ThrowOnError>) {
+    return (options.client ?? this._client).post<McpAuthCallbackResponses, McpAuthCallbackErrors, ThrowOnError>({
+      url: "/mcp/{name}/auth/callback",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+  }
+
+  /**
+   * Start OAuth flow and wait for callback (opens browser)
+   */
+  public authenticate<ThrowOnError extends boolean = false>(options: Options<McpAuthAuthenticateData, ThrowOnError>) {
+    return (options.client ?? this._client).post<McpAuthAuthenticateResponses, McpAuthAuthenticateErrors, ThrowOnError>(
+      {
+        url: "/mcp/{name}/auth/authenticate",
+        ...options,
+      },
+    )
+  }
+
+  /**
+   * Set authentication credentials
+   */
+  public set<ThrowOnError extends boolean = false>(options: Options<AuthSetData, ThrowOnError>) {
+    return (options.client ?? this._client).put<AuthSetResponses, AuthSetErrors, ThrowOnError>({
+      url: "/auth/{id}",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+  }
+}
+
 class Mcp extends _HeyApiClient {
   /**
    * Get MCP server status
@@ -610,6 +933,92 @@ class Mcp extends _HeyApiClient {
     return (options?.client ?? this._client).get<McpStatusResponses, unknown, ThrowOnError>({
       url: "/mcp",
       ...options,
+    })
+  }
+
+  /**
+   * Add MCP server dynamically
+   */
+  public add<ThrowOnError extends boolean = false>(options?: Options<McpAddData, ThrowOnError>) {
+    return (options?.client ?? this._client).post<McpAddResponses, McpAddErrors, ThrowOnError>({
+      url: "/mcp",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    })
+  }
+
+  /**
+   * Connect an MCP server
+   */
+  public connect<ThrowOnError extends boolean = false>(options: Options<McpConnectData, ThrowOnError>) {
+    return (options.client ?? this._client).post<McpConnectResponses, unknown, ThrowOnError>({
+      url: "/mcp/{name}/connect",
+      ...options,
+    })
+  }
+
+  /**
+   * Disconnect an MCP server
+   */
+  public disconnect<ThrowOnError extends boolean = false>(options: Options<McpDisconnectData, ThrowOnError>) {
+    return (options.client ?? this._client).post<McpDisconnectResponses, unknown, ThrowOnError>({
+      url: "/mcp/{name}/disconnect",
+      ...options,
+    })
+  }
+
+  auth = new Auth({ client: this._client })
+}
+
+class Lsp extends _HeyApiClient {
+  /**
+   * Get LSP server status
+   */
+  public status<ThrowOnError extends boolean = false>(options?: Options<LspStatusData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<LspStatusResponses, unknown, ThrowOnError>({
+      url: "/lsp",
+      ...options,
+    })
+  }
+}
+
+class Formatter extends _HeyApiClient {
+  /**
+   * Get formatter status
+   */
+  public status<ThrowOnError extends boolean = false>(options?: Options<FormatterStatusData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<FormatterStatusResponses, unknown, ThrowOnError>({
+      url: "/formatter",
+      ...options,
+    })
+  }
+}
+
+class Control extends _HeyApiClient {
+  /**
+   * Get the next TUI request from the queue
+   */
+  public next<ThrowOnError extends boolean = false>(options?: Options<TuiControlNextData, ThrowOnError>) {
+    return (options?.client ?? this._client).get<TuiControlNextResponses, unknown, ThrowOnError>({
+      url: "/tui/control/next",
+      ...options,
+    })
+  }
+
+  /**
+   * Submit a response to the TUI request queue
+   */
+  public response<ThrowOnError extends boolean = false>(options?: Options<TuiControlResponseData, ThrowOnError>) {
+    return (options?.client ?? this._client).post<TuiControlResponseResponses, unknown, ThrowOnError>({
+      url: "/tui/control/response",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
     })
   }
 }
@@ -716,22 +1125,21 @@ class Tui extends _HeyApiClient {
       },
     })
   }
-}
 
-class Auth extends _HeyApiClient {
   /**
-   * Set authentication credentials
+   * Publish a TUI event
    */
-  public set<ThrowOnError extends boolean = false>(options: Options<AuthSetData, ThrowOnError>) {
-    return (options.client ?? this._client).put<AuthSetResponses, AuthSetErrors, ThrowOnError>({
-      url: "/auth/{id}",
+  public publish<ThrowOnError extends boolean = false>(options?: Options<TuiPublishData, ThrowOnError>) {
+    return (options?.client ?? this._client).post<TuiPublishResponses, TuiPublishErrors, ThrowOnError>({
+      url: "/tui/publish",
       ...options,
       headers: {
         "Content-Type": "application/json",
-        ...options.headers,
+        ...options?.headers,
       },
     })
   }
+  control = new Control({ client: this._client })
 }
 
 class Event extends _HeyApiClient {
@@ -766,16 +1174,23 @@ export class OpencodeClient extends _HeyApiClient {
       },
     })
   }
+  global = new Global({ client: this._client })
   project = new Project({ client: this._client })
+  pty = new Pty({ client: this._client })
   config = new Config({ client: this._client })
   tool = new Tool({ client: this._client })
+  instance = new Instance({ client: this._client })
   path = new Path({ client: this._client })
+  vcs = new Vcs({ client: this._client })
   session = new Session({ client: this._client })
   command = new Command({ client: this._client })
+  provider = new Provider({ client: this._client })
   find = new Find({ client: this._client })
   file = new File({ client: this._client })
   app = new App({ client: this._client })
   mcp = new Mcp({ client: this._client })
+  lsp = new Lsp({ client: this._client })
+  formatter = new Formatter({ client: this._client })
   tui = new Tui({ client: this._client })
   auth = new Auth({ client: this._client })
   event = new Event({ client: this._client })

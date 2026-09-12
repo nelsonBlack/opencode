@@ -1,36 +1,79 @@
-import { Global } from "../../global"
-import { Provider } from "../../provider/provider"
-import { Server } from "../../server/server"
-import { UI } from "../ui"
-import { cmd } from "./cmd"
+import { cmd } from "@/cli/cmd/cmd"
+import { Rpc } from "@/util/rpc"
+import { type rpc } from "../tui/worker"
 import path from "path"
-import fs from "fs/promises"
-import { Installation } from "../../installation"
-import { Config } from "../../config/config"
-import { Bus } from "../../bus"
-import { Log } from "../../util/log"
-import { Ide } from "../../ide"
-
-import { Flag } from "../../flag/flag"
-import { Session } from "../../session"
-import { $ } from "bun"
-import { bootstrap } from "../bootstrap"
+import { fileURLToPath } from "url"
+import { UI } from "@/cli/ui"
+import { errorMessage } from "@opencode-ai/tui/util/error"
+import { withTimeout } from "@/util/timeout"
+import { withNetworkOptions, resolveNetworkOptionsNoConfig, hasArg } from "@/cli/network"
+import { Filesystem } from "@/util/filesystem"
+import type { GlobalEvent } from "@opencode-ai/sdk/v2"
+import type { EventSource } from "@opencode-ai/tui/context/sdk"
+import { writeHeapSnapshot } from "v8"
+import { ServerAuth } from "@/server/auth"
+import { validateSession } from "../tui/validate-session"
+import { win32InstallCtrlCGuard } from "@opencode-ai/tui/terminal-win32"
 
 declare global {
-  const OPENCODE_TUI_PATH: string
+  const OPENCODE_WORKER_PATH: string
 }
 
-if (typeof OPENCODE_TUI_PATH !== "undefined") {
-  await import(OPENCODE_TUI_PATH as string, {
-    with: { type: "file" },
-  })
+type RpcClient = ReturnType<typeof Rpc.client<typeof rpc>>
+
+function createWorkerFetch(client: RpcClient): typeof fetch {
+  const fn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init)
+    const body = request.body ? await request.text() : undefined
+    const result = await client.call("fetch", {
+      url: request.url,
+      method: request.method,
+      headers: Object.fromEntries(request.headers.entries()),
+      body,
+    })
+    return new Response(result.body, {
+      status: result.status,
+      headers: result.headers,
+    })
+  }
+  return fn as typeof fetch
 }
 
-export const TuiCommand = cmd({
+function createEventSource(client: RpcClient): EventSource {
+  return {
+    subscribe: async (handler) => {
+      return client.on<GlobalEvent>("global.event", (e) => {
+        handler(e)
+      })
+    },
+  }
+}
+
+async function target() {
+  if (typeof OPENCODE_WORKER_PATH !== "undefined") return OPENCODE_WORKER_PATH
+  const dist = new URL("./cli/tui/worker.js", import.meta.url)
+  if (await Filesystem.exists(fileURLToPath(dist))) return dist
+  return new URL("../tui/worker.ts", import.meta.url)
+}
+
+async function input(value?: string) {
+  const piped = process.stdin.isTTY ? undefined : await Bun.stdin.text()
+  if (!value) return piped
+  if (!piped) return value
+  return piped + "\n" + value
+}
+
+export function resolveThreadDirectory(project?: string, envPWD = process.env.PWD, cwd = process.cwd()) {
+  const root = Filesystem.resolve(envPWD ?? cwd)
+  if (project) return Filesystem.resolve(path.isAbsolute(project) ? project : path.join(root, project))
+  return Filesystem.resolve(cwd)
+}
+
+export const TuiThreadCommand = cmd({
   command: "$0 [project]",
   describe: "start opencode tui",
   builder: (yargs) =>
-    yargs
+    withNetworkOptions(yargs)
       .positional("project", {
         type: "string",
         describe: "path to start opencode in",
@@ -47,11 +90,14 @@ export const TuiCommand = cmd({
       })
       .option("session", {
         alias: ["s"],
-        describe: "session id to continue",
         type: "string",
+        describe: "session id to continue",
+      })
+      .option("fork", {
+        type: "boolean",
+        describe: "fork the session when continuing (use with --continue or --session)",
       })
       .option("prompt", {
-        alias: ["p"],
         type: "string",
         describe: "prompt to use",
       })
@@ -59,165 +105,205 @@ export const TuiCommand = cmd({
         type: "string",
         describe: "agent to use",
       })
-      .option("port", {
-        type: "number",
-        describe: "port to listen on",
-        default: 0,
+      .option("auto", {
+        type: "boolean",
+        describe: "auto-approve permissions that are not explicitly denied (dangerous!)",
+        default: false,
       })
-      .option("hostname", {
-        alias: ["h"],
-        type: "string",
-        describe: "hostname to listen on",
-        default: "127.0.0.1",
+      .option("yolo", {
+        type: "boolean",
+        hidden: true,
+        default: false,
+      })
+      .option("dangerously-skip-permissions", {
+        type: "boolean",
+        hidden: true,
+        default: false,
+      })
+      .option("mini", {
+        type: "boolean",
+        describe: "start the minimal interactive interface",
+        default: false,
+      })
+      .option("replay", {
+        type: "boolean",
+        hidden: true,
+      })
+      .option("no-replay", {
+        type: "boolean",
+        describe: "disable mini session history replay on resume and after resize",
+      })
+      .option("replay-limit", {
+        type: "number",
+        describe: "cap visible mini replay to the newest N messages",
+      })
+      .option("demo", {
+        type: "boolean",
+        hidden: true,
       }),
   handler: async (args) => {
-    while (true) {
-      const cwd = args.project ? path.resolve(args.project) : process.cwd()
-      try {
-        process.chdir(cwd)
-      } catch (e) {
-        UI.error("Failed to change directory to " + cwd)
+    if (args.replay === true) {
+      UI.error("--replay is not supported; replay is enabled by default")
+      process.exitCode = 1
+      return
+    }
+    const noReplay = args.replay === false || args.noReplay === true
+
+    if (args.mini) {
+      const network = ["--port", "--hostname", "--mdns", "--no-mdns", "--mdns-domain", "--cors"].find((option) =>
+        process.argv.some((arg) => arg === option || arg.startsWith(option + "=")),
+      )
+      if (network) {
+        UI.error(`${network} cannot be used with --mini`)
+        process.exitCode = 1
         return
       }
-      const result = await bootstrap(cwd, async () => {
-        const sessionID = await (async () => {
-          if (args.continue) {
-            const it = Session.list()
-            try {
-              for await (const s of it) {
-                if (s.parentID === undefined) {
-                  return s.id
-                }
-              }
-              return
-            } finally {
-              await it.return()
-            }
-          }
-          if (args.session) {
-            return args.session
-          }
-          return undefined
-        })()
-        const providers = await Provider.list()
-        if (Object.keys(providers).length === 0) {
-          return "needs_provider"
-        }
 
-        const server = Server.listen({
-          port: args.port,
-          hostname: args.hostname,
-        })
-
-        let cmd = [] as string[]
-        const tui = Bun.embeddedFiles.find((item) => (item as File).name.includes("tui")) as File
-        if (tui) {
-          let binaryName = tui.name
-          if (process.platform === "win32" && !binaryName.endsWith(".exe")) {
-            binaryName += ".exe"
-          }
-          const binary = path.join(Global.Path.cache, "tui", binaryName)
-          const file = Bun.file(binary)
-          if (!(await file.exists())) {
-            await Bun.write(file, tui, { mode: 0o755 })
-            if (process.platform !== "win32") await fs.chmod(binary, 0o755)
-          }
-          cmd = [binary]
-        }
-        if (!tui) {
-          const dir = Bun.fileURLToPath(new URL("../../../../tui/cmd/opencode", import.meta.url))
-          let binaryName = `./dist/tui${process.platform === "win32" ? ".exe" : ""}`
-          await $`go build -o ${binaryName} ./main.go`.cwd(dir)
-          cmd = [path.join(dir, binaryName)]
-        }
-        Log.Default.info("tui", {
-          cmd,
-        })
-        const proc = Bun.spawn({
-          cmd: [
-            ...cmd,
-            ...(args.model ? ["--model", args.model] : []),
-            ...(args.prompt ? ["--prompt", args.prompt] : []),
-            ...(args.agent ? ["--agent", args.agent] : []),
-            ...(sessionID ? ["--session", sessionID] : []),
-          ],
-          cwd,
-          stdout: "inherit",
-          stderr: "inherit",
-          stdin: "inherit",
-          env: {
-            ...process.env,
-            CGO_ENABLED: "0",
-            OPENCODE_SERVER: server.url.toString(),
-          },
-          onExit: () => {
-            server.stop()
-          },
-        })
-
-        ;(async () => {
-          // if (Installation.isLocal()) return
-          const config = await Config.global()
-          if (config.autoupdate === false || Flag.OPENCODE_DISABLE_AUTOUPDATE) return
-          const latest = await Installation.latest().catch(() => {})
-          if (!latest) return
-          if (Installation.VERSION === latest) return
-          const method = await Installation.method()
-          if (method === "unknown") return
-          await Installation.upgrade(method, latest)
-            .then(() => Bus.publish(Installation.Event.Updated, { version: latest }))
-            .catch(() => {})
-        })()
-        ;(async () => {
-          if (Ide.alreadyInstalled()) return
-          const ide = Ide.ide()
-          if (ide === "unknown") return
-          await Ide.install(ide)
-            .then(() => Bus.publish(Ide.Event.Installed, { ide }))
-            .catch(() => {})
-        })()
-
-        await proc.exited
-        server.stop()
-
-        return "done"
+      const { runMini } = await import("./run")
+      await runMini({
+        directory: resolveThreadDirectory(args.project),
+        continue: args.continue,
+        session: args.session,
+        fork: args.fork,
+        model: args.model,
+        agent: args.agent,
+        prompt: args.prompt,
+        replay: noReplay ? false : undefined,
+        replayLimit: args.replayLimit,
+        demo: args.demo,
       })
-      if (result === "done") break
-      if (result === "needs_provider") {
-        UI.empty()
-        UI.println(UI.logo("   "))
-        const result = await Bun.spawn({
-          cmd: [...getOpencodeCommand(), "auth", "login"],
-          cwd: process.cwd(),
-          stdout: "inherit",
-          stderr: "inherit",
-          stdin: "inherit",
-        }).exited
-        if (result !== 0) return
-        UI.empty()
-      }
+      return
     }
+
+    const unsupported = [
+      ["--no-replay", noReplay],
+      ["--replay-limit", args.replayLimit !== undefined],
+      ["--demo", args.demo !== undefined],
+    ].find((entry) => entry[1])?.[0]
+    if (unsupported) {
+      UI.error(`${unsupported} requires --mini`)
+      process.exitCode = 1
+      return
+    }
+
+    const unguard = win32InstallCtrlCGuard()
+    try {
+      const { TuiConfig } = await import("@/config/tui")
+      if (args.fork && !args.continue && !args.session) {
+        UI.error("--fork requires --continue or --session")
+        process.exitCode = 1
+        return
+      }
+
+      // Resolve relative --project paths from PWD, then use the real cwd after
+      // chdir so the thread and worker share the same directory key.
+      const next = resolveThreadDirectory(args.project)
+      const file = await target()
+      try {
+        process.chdir(next)
+      } catch {
+        UI.error("Failed to change directory to " + next)
+        return
+      }
+      const cwd = Filesystem.resolve(process.cwd())
+
+      const worker = new Worker(file, {
+        env: Object.fromEntries(
+          Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+        ),
+      })
+      const client = Rpc.client<typeof rpc>(worker)
+      const reload = () => {
+        client.call("reload", undefined).catch(() => {})
+      }
+      process.on("SIGUSR2", reload)
+
+      let stopped = false
+      const stop = async () => {
+        if (stopped) return
+        stopped = true
+        process.off("SIGUSR2", reload)
+        await withTimeout(client.call("shutdown", undefined), 5000).catch(() => {})
+        worker.terminate()
+      }
+
+      const prompt = await input(args.prompt)
+      const config = await TuiConfig.get()
+
+      const network = resolveNetworkOptionsNoConfig(args)
+      const external = hasArg("--port") || hasArg("--hostname") || network.mdns === true
+
+      const headers = external ? ServerAuth.headers() : undefined
+
+      const transport = external
+        ? {
+            url: (await client.call("server", network)).url,
+            fetch: undefined,
+            events: undefined,
+            headers,
+          }
+        : {
+            url: "http://opencode.internal",
+            fetch: createWorkerFetch(client),
+            events: createEventSource(client),
+          }
+
+      try {
+        await validateSession({
+          url: transport.url,
+          sessionID: args.session,
+          directory: cwd,
+          fetch: transport.fetch,
+          headers,
+        })
+      } catch (error) {
+        UI.error(errorMessage(error))
+        process.exitCode = 1
+        return
+      }
+
+      setTimeout(() => {
+        client.call("checkUpgrade", { directory: cwd }).catch(() => {})
+      }, 1000).unref?.()
+
+      try {
+        const { Effect } = await import("effect")
+        const { run } = await import("../tui/layer")
+        const { createLegacyTuiPluginHost } = await import("@/plugin/tui/runtime")
+        await Effect.runPromise(
+          run({
+            url: transport.url,
+            async onSnapshot() {
+              const tui = writeHeapSnapshot("tui.heapsnapshot")
+              const server = await client.call("snapshot", undefined)
+              return [tui, server]
+            },
+            config,
+            pluginHost: createLegacyTuiPluginHost(),
+            directory: cwd,
+            fetch: transport.fetch,
+            headers: transport.headers,
+            events: transport.events,
+            args: {
+              continue: args.continue,
+              sessionID: args.session,
+              agent: args.agent,
+              model: args.model,
+              prompt,
+              fork: args.fork,
+              auto: args.auto || args.yolo || args["dangerously-skip-permissions"],
+            },
+          }),
+        )
+      } finally {
+        await stop()
+      }
+    } finally {
+      try {
+        unguard?.()
+      } catch {}
+    }
+    process.exit(0)
   },
 })
-
-/**
- * Get the correct command to run opencode CLI
- * In development: ["bun", "run", "packages/opencode/src/index.ts"]
- * In production: ["/path/to/opencode"]
- */
-function getOpencodeCommand(): string[] {
-  // Check if OPENCODE_BIN_PATH is set (used by shell wrapper scripts)
-  if (process.env["OPENCODE_BIN_PATH"]) {
-    return [process.env["OPENCODE_BIN_PATH"]]
-  }
-
-  const execPath = process.execPath.toLowerCase()
-
-  if (Installation.isLocal()) {
-    // In development, use bun to run the TypeScript entry point
-    return [execPath, "run", process.argv[1]]
-  }
-
-  // In production, use the current executable path
-  return [process.execPath]
-}
+// scratch

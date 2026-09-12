@@ -1,12 +1,11 @@
-import { Plugin } from "./index"
-import { tool } from "./tool"
+import { Plugin } from "./index.js"
+import { tool } from "./tool.js"
 
-export const ExamplePlugin: Plugin = async (ctx) => {
+export const ExamplePlugin: Plugin = async (_ctx) => {
   return {
-    permission: {},
     tool: {
       mytool: tool({
-        description: "This is a custom tool tool",
+        description: "This is a custom tool",
         args: {
           foo: tool.schema.string().describe("foo"),
         },
@@ -14,9 +13,6 @@ export const ExamplePlugin: Plugin = async (ctx) => {
           return `Hello ${args.foo}!`
         },
       }),
-    },
-    async "chat.params"(_input, output) {
-      output.topP = 1
     },
   }
 }

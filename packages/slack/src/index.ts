@@ -20,16 +20,16 @@ const opencode = await createOpencode({
 console.log("✅ Opencode server ready")
 
 const sessions = new Map<string, { client: any; server: any; sessionId: string; channel: string; thread: string }>()
-;(async () => {
+void (async () => {
   const events = await opencode.client.event.subscribe()
   for await (const event of events.stream) {
     if (event.type === "message.part.updated") {
       const part = event.properties.part
       if (part.type === "tool") {
         // Find the session for this tool update
-        for (const [sessionKey, session] of sessions.entries()) {
+        for (const [_sessionKey, session] of sessions.entries()) {
           if (session.sessionId === part.sessionID) {
-            handleToolUpdate(part, session.channel, session.thread)
+            void handleToolUpdate(part, session.channel, session.thread)
             break
           }
         }
@@ -81,7 +81,10 @@ app.message(async ({ message, say }) => {
 
     if (createResult.error) {
       console.error("❌ Failed to create session:", createResult.error)
-      await say({ text: "Sorry, I had trouble creating a session. Please try again.", thread_ts: thread })
+      await say({
+        text: "Sorry, I had trouble creating a session. Please try again.",
+        thread_ts: thread,
+      })
       return
     }
 
@@ -92,7 +95,7 @@ app.message(async ({ message, say }) => {
 
     const shareResult = await client.session.share({ path: { id: createResult.data.id } })
     if (!shareResult.error && shareResult.data) {
-      const sessionUrl = shareResult.data.share?.url!
+      const sessionUrl = shareResult.data.share?.url
       console.log("🔗 Session shared:", sessionUrl)
       await app.client.chat.postMessage({ channel, thread_ts: thread, text: sessionUrl })
     }
@@ -108,7 +111,10 @@ app.message(async ({ message, say }) => {
 
   if (result.error) {
     console.error("❌ Failed to send message:", result.error)
-    await say({ text: "Sorry, I had trouble processing your message. Please try again.", thread_ts: thread })
+    await say({
+      text: "Sorry, I had trouble processing your message. Please try again.",
+      thread_ts: thread,
+    })
     return
   }
 
